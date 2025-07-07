@@ -1,52 +1,71 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { gapi } from 'gapi-script';
 
-const CLIENT_ID = "241498959848-5ogtiq24cevlush96p81r9pr1ppnorp2.apps.googleusercontent.com"; // Replace with your actual client ID
-const API_KEY = "AIzaSyAONJqvY2YQp2wEjsRihMGFJy1G7dRh7OA"; // Replace with your actual API key
+const CLIENT_ID = "241498959848-5ogtiq24cevlush96p81r9pr1ppnorp2.apps.googleusercontent.com";
+const API_KEY = "AIzaSyAONJqvY2YQp2wEjsRihMGFJy1G7dRh7OA";
 const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"];
-const SCOPES = "https://www.googleapis.com/auth/calendar.events.readonly";
+const SCOPES = "https://www.googleapis.com/auth/calendar.readonly";
 
 const GoogleCalendar = () => {
-  useEffect(() => {
-    function start() {
-      gapi.client.init({
-        apiKey: API_KEY,
-        clientId: CLIENT_ID,
-        discoveryDocs: DISCOVERY_DOCS,
-        scope: SCOPES,
-      });
-    }
+  const [signedIn, setSignedIn] = useState(false);
+  const [events, setEvents] = useState([]);
 
-    gapi.load("client:auth2", start);
+  useEffect(() => {
+    const initClient = () => {
+      gapi.client
+        .init({
+          apiKey: API_KEY,
+          clientId: CLIENT_ID,
+          discoveryDocs: DISCOVERY_DOCS,
+          scope: SCOPES,
+        })
+        .then(() => {
+          const auth = gapi.auth2.getAuthInstance();
+          setSignedIn(auth.isSignedIn.get());
+
+          // Optional: Listen for sign-in state changes
+          auth.isSignedIn.listen(setSignedIn);
+        });
+    };
+
+    gapi.load('client:auth2', initClient);
   }, []);
 
-  const handleLogin = () => {
+  const handleSignIn = () => {
     gapi.auth2.getAuthInstance().signIn();
   };
 
-  const handleListEvents = () => {
+  const handleShowEvents = () => {
     gapi.client.calendar.events
       .list({
-        calendarId: "primary",
+        calendarId: 'primary',
         timeMin: new Date().toISOString(),
         showDeleted: false,
         singleEvents: true,
-        orderBy: "startTime",
+        maxResults: 10,
+        orderBy: 'startTime',
       })
       .then((response) => {
         const events = response.result.items;
-        console.log("Upcoming events:", events);
-        alert(`Fetched ${events.length} event(s). Check console.`);
+        setEvents(events);
+        console.log("Fetched events:", events);
       });
   };
 
   return (
-    <div style={{ padding: '2rem' }}>
+    <div>
       <h2>Google Calendar Integration</h2>
-      <button onClick={handleLogin}>Sign in with Google</button>
-      <button onClick={handleListEvents} style={{ marginLeft: '1rem' }}>
-        Show Upcoming Events
-      </button>
+      {!signedIn && <button onClick={handleSignIn}>Sign in with Google</button>}
+      {signedIn && <button onClick={handleShowEvents}>Show Upcoming Events</button>}
+
+      <ul>
+        {events.map((event) => (
+          <li key={event.id}>
+            <strong>{event.summary}</strong> <br />
+            {event.start.dateTime || event.start.date}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };
