@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { gapi } from 'gapi-script';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import interactionPlugin from '@fullcalendar/interaction';
 
 const CLIENT_ID = '609925221544-renr6blm7gsf0v0feu44dk1rvdkmcftt.apps.googleusercontent.com';
 const API_KEY = 'AIzaSyANCMIH2ur1g20OFAW2uK0uanRBRFPyC1Q';
@@ -10,7 +13,7 @@ function App() {
   const [events, setEvents] = useState([]);
 
   useEffect(() => {
-    const initClient = () => {
+    function start() {
       gapi.client.init({
         apiKey: API_KEY,
         clientId: CLIENT_ID,
@@ -20,18 +23,22 @@ function App() {
         const authInstance = gapi.auth2.getAuthInstance();
         setSignedIn(authInstance.isSignedIn.get());
         authInstance.isSignedIn.listen(setSignedIn);
+        if (authInstance.isSignedIn.get()) {
+          fetchEvents();
+        }
       });
-    };
+    }
 
-    gapi.load('client:auth2', initClient);
+    gapi.load('client:auth2', start);
   }, []);
 
   const handleLogin = () => {
-    gapi.auth2.getAuthInstance().signIn();
+    gapi.auth2.getAuthInstance().signIn().then(fetchEvents);
   };
 
   const handleLogout = () => {
     gapi.auth2.getAuthInstance().signOut();
+    setEvents([]);
   };
 
   const fetchEvents = async () => {
@@ -40,62 +47,85 @@ function App() {
       timeMin: new Date().toISOString(),
       showDeleted: false,
       singleEvents: true,
-      maxResults: 10,
+      maxResults: 2500,
       orderBy: 'startTime',
     });
-    setEvents(response.result.items);
+
+    const items = response.result.items.map(event => ({
+      id: event.id,
+      title: event.summary,
+      start: event.start.dateTime || event.start.date,
+      end: event.end.dateTime || event.end.date,
+    }));
+
+    setEvents(items);
   };
 
-  const createEvent = async () => {
-    const event = {
-      summary: 'New Meeting',
-      description: 'Created via React app',
-      start: {
-        dateTime: new Date().toISOString(),
-        timeZone: 'Asia/Kolkata',
-      },
-      end: {
-        dateTime: new Date(new Date().getTime() + 3600000).toISOString(),
-        timeZone: 'Asia/Kolkata',
-      },
-    };
+  const handleDateClick = async (info) => {
+    const title = prompt('Enter event title');
+    if (title) {
+      const newEvent = {
+        summary: title,
+        start: {
+          dateTime: info.dateStr,
+          timeZone: 'Asia/Kolkata',
+        },
+        end: {
+          dateTime: new Date(new Date(info.dateStr).getTime() + 60 * 60 * 1000).toISOString(),
+          timeZone: 'Asia/Kolkata',
+        },
+      };
 
-    await gapi.client.calendar.events.insert({
-      calendarId: 'primary',
-      resource: event,
-    });
+      await gapi.client.calendar.events.insert({
+        calendarId: 'primary',
+        resource: newEvent,
+      });
 
-    fetchEvents();
+      fetchEvents();
+    }
   };
 
-  const deleteEvent = async (eventId) => {
-    await gapi.client.calendar.events.delete({
-      calendarId: 'primary',
-      eventId,
-    });
+  const handleEventClick = async (info) => {
+    const action = prompt(`Edit title or type DELETE to remove "${info.event.title}"`);
+    if (!action) return;
+
+    if (action.toLowerCase() === 'delete') {
+      await gapi.client.calendar.events.delete({
+        calendarId: 'primary',
+        eventId: info.event.id,
+      });
+    } else {
+      await gapi.client.calendar.events.update({
+        calendarId: 'primary',
+        eventId: info.event.id,
+        resource: {
+          summary: action,
+          start: { dateTime: info.event.start.toISOString(), timeZone: 'Asia/Kolkata' },
+          end: { dateTime: info.event.end.toISOString(), timeZone: 'Asia/Kolkata' },
+        },
+      });
+    }
 
     fetchEvents();
   };
 
   return (
-    <div style={{ padding: '2rem' }}>
-      <h1>Google Calendar Integration</h1>
-      {signedIn ? (
-        <>
-          <button onClick={handleLogout}>Logout</button>
-          <button onClick={fetchEvents}>Load Events</button>
-          <button onClick={createEvent}>Create Sample Event</button>
-          <ul>
-            {events.map((event) => (
-              <li key={event.id}>
-                {event.summary} - {event.start?.dateTime}
-                <button onClick={() => deleteEvent(event.id)} style={{ marginLeft: '1rem' }}>Delete</button>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : (
+    <div style={{ padding: '1rem' }}>
+      <h2>📅 My Google Calendar</h2>
+      {!signedIn ? (
         <button onClick={handleLogin}>Sign in with Google</button>
+      ) : (
+        <div>
+          <button onClick={handleLogout}>Logout</button>
+          <FullCalendar
+            plugins={[dayGridPlugin, interactionPlugin]}
+            initialView="dayGridMonth"
+            events={events}
+            dateClick={handleDateClick}
+            eventClick={handleEventClick}
+            height="auto"
+          />
+        </div>
       )}
     </div>
   );
